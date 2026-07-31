@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --color-ink: #16181d;
+  --color-surface: #ffffff;
+  --color-canvas: #f4f5f7;
+  --color-border: #e2e4e9;
+  --color-accent: #0f6b4f;
+  --color-accent-hover: #0c5941;
+  --color-danger: #c0392b;
+  --color-warn: #b45309;
+}
+
+body {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(15, 107, 79, 0.06), transparent),
+    var(--color-canvas);
+  min-height: 100vh;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.25s ease-out both;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
