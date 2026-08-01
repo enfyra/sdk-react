@@ -16,9 +16,11 @@ const EnfyraContext = createContext<EnfyraContextValue | null>(null);
 const TOKENS_STORAGE_KEY = '__enfyra_tokens';
 
 export interface EnfyraProviderProps {
-  config: ReactClientConfig;
+  config?: ReactClientConfig;
   children: ReactNode;
 }
+
+const DEFAULT_BASE_URL = '/enfyra';
 
 function parseSavedTokens(raw: string | null): AuthTokens | null {
   if (!raw) return null;
@@ -33,16 +35,18 @@ function parseSavedTokens(raw: string | null): AuthTokens | null {
 
 export function EnfyraProvider({ config, children }: EnfyraProviderProps) {
   assertBrowserRuntime();
+  const resolvedConfig = typeof config === 'string'
+    ? { baseUrl: config }
+    : config ?? { baseUrl: DEFAULT_BASE_URL };
+  const cacheKey = resolvedConfig.baseUrl;
   const value = useMemo(() => {
-    const client = new EnfyraClient(
-      typeof config === 'string' ? { baseUrl: config } : config,
-    );
+    const client = new EnfyraClient(resolvedConfig);
     const saved = parseSavedTokens(localStorage.getItem(TOKENS_STORAGE_KEY));
     if (saved) {
       client.auth.setTokens(saved).catch(() => {});
     }
     return { client, authStore: createAuthStore(client) };
-  }, [typeof config === 'string' ? config : config.baseUrl]);
+  }, [cacheKey]);
 
   const client = value.client;
   const prevTokensRef = useRef<string | null>(null);
