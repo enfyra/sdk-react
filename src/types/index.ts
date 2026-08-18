@@ -19,4 +19,6 @@ export type {
   StorageConfigRecord,
   UserInfo,
   WebSocketConfig,
+  WebSocketEvent,
+  WebSocketTransport,
 } from '@enfyra/sdk-core';

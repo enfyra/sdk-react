@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { WebSocketClient } from '@enfyra/sdk-core';
-import type { WebSocketEvent } from '@enfyra/sdk-core';
+import type { WebSocketConfig, WebSocketEvent } from '@enfyra/sdk-core';
 import { useEnfyra } from '../context/EnfyraContext';
 
-export interface UseWebSocketOptions {
+export interface UseWebSocketOptions extends Pick<WebSocketConfig, 'path' | 'namespacePrefix' | 'withCredentials' | 'reconnect' | 'maxReconnectAttempts' | 'reconnectInterval' | 'reconnectDelayMax' | 'transports' | 'upgrade'> {
   baseUrl?: string;
   immediate?: boolean;
 }
@@ -48,12 +48,21 @@ export function useWebSocket(gateway: string, options: UseWebSocketOptions = {})
     store.setState({ connecting: true, error: null });
 
     const baseUrl = options.baseUrl ?? client.getHttpClient().baseUrl.replace(/\/api\/?$/, '');
-    const ws = new WebSocketClient({
+    const socketConfig: WebSocketConfig = {
       baseUrl,
       gateway,
       getAuthToken: () => client.auth.getToken(),
-      reconnect: true,
-    });
+    };
+    if (options.path !== undefined) socketConfig.path = options.path;
+    if (options.namespacePrefix !== undefined) socketConfig.namespacePrefix = options.namespacePrefix;
+    if (options.withCredentials !== undefined) socketConfig.withCredentials = options.withCredentials;
+    if (options.reconnect !== undefined) socketConfig.reconnect = options.reconnect;
+    if (options.maxReconnectAttempts !== undefined) socketConfig.maxReconnectAttempts = options.maxReconnectAttempts;
+    if (options.reconnectInterval !== undefined) socketConfig.reconnectInterval = options.reconnectInterval;
+    if (options.reconnectDelayMax !== undefined) socketConfig.reconnectDelayMax = options.reconnectDelayMax;
+    if (options.transports !== undefined) socketConfig.transports = options.transports;
+    if (options.upgrade !== undefined) socketConfig.upgrade = options.upgrade;
+    const ws = new WebSocketClient(socketConfig);
 
     ws.on('connect', () => store.setState({ connected: true, connecting: false }));
     ws.on('disconnect', () => store.setState({ connected: false }));
@@ -73,7 +82,7 @@ export function useWebSocket(gateway: string, options: UseWebSocketOptions = {})
       wsRef.current = null;
       throw err;
     }
-  }, [client, gateway, options.baseUrl, store]);
+  }, [client, gateway, options.baseUrl, options.path, options.namespacePrefix, options.withCredentials, options.reconnect, options.maxReconnectAttempts, options.reconnectInterval, options.reconnectDelayMax, options.transports, options.upgrade, store]);
 
   const disconnect = useCallback((): void => {
     unsubscribesRef.current.forEach((fn) => fn());
