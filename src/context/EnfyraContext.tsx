@@ -1,75 +1,38 @@
-import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
-import type { ReactNode } from 'react';
-import { EnfyraClient } from '@enfyra/sdk-core';
-import type { AuthTokens } from '@enfyra/sdk-core';
-import type { StoreApi } from 'zustand/vanilla';
-import type { AuthStore } from '../stores/authStore';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { createTokenPersistence, EnfyraClient } from '@enfyra/sdk-core';
 import { createAuthStore } from '../stores/authStore';
-import type { ReactClientConfig } from '../types';
-
-interface EnfyraContextValue {
-  client: EnfyraClient;
-  authStore: StoreApi<AuthStore>;
-}
+import type { EnfyraContextValue, EnfyraProviderProps } from '../types';
 
 const EnfyraContext = createContext<EnfyraContextValue | null>(null);
-const TOKENS_STORAGE_KEY = '__enfyra_tokens';
-
-export interface EnfyraProviderProps {
-  config?: ReactClientConfig;
-  children: ReactNode;
-}
-
 const DEFAULT_BASE_URL = '/enfyra';
-
-function parseSavedTokens(raw: string | null): AuthTokens | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.accessToken === 'string' && typeof parsed.expTime === 'number') {
-      return parsed;
-    }
-  } catch { /* ignore */ }
-  return null;
-}
 
 export function EnfyraProvider({ config, children }: EnfyraProviderProps) {
   assertBrowserRuntime();
-  const resolvedConfig = typeof config === 'string'
-    ? { baseUrl: config }
-    : config ?? { baseUrl: DEFAULT_BASE_URL };
-  const cacheKey = resolvedConfig.baseUrl;
-  const value = useMemo(() => {
+  const resolvedConfig =
+    typeof config === 'string'
+      ? { baseUrl: config }
+      : (config ?? { baseUrl: DEFAULT_BASE_URL });
+  const [value] = useState(() => {
     const client = new EnfyraClient(resolvedConfig);
-    const saved = parseSavedTokens(localStorage.getItem(TOKENS_STORAGE_KEY));
-    if (saved) {
-      client.auth.setTokens(saved).catch(() => {});
-    }
-    return { client, authStore: createAuthStore(client) };
-  }, [cacheKey]);
-
-  const client = value.client;
-  const prevTokensRef = useRef<string | null>(null);
+    const persistence = createTokenPersistence(client, {
+      getItem: (key) => window.localStorage.getItem(key),
+      setItem: (key, value) => window.localStorage.setItem(key, value),
+      removeItem: (key) => window.localStorage.removeItem(key),
+    });
+    return { client, authStore: createAuthStore(client), persistence };
+  });
 
   useEffect(() => {
-    prevTokensRef.current = localStorage.getItem(TOKENS_STORAGE_KEY);
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const tokens = client.auth.getTokens();
-      const current = tokens ? JSON.stringify(tokens) : null;
-      if (current !== prevTokensRef.current) {
-        prevTokensRef.current = current;
-        if (current) {
-          localStorage.setItem(TOKENS_STORAGE_KEY, current);
-        } else {
-          localStorage.removeItem(TOKENS_STORAGE_KEY);
-        }
-      }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [client]);
+    value.persistence.sync();
+    const interval =
+      value.client.auth.strategy === 'token'
+        ? setInterval(() => value.persistence.sync(), 500)
+        : undefined;
+    return () => {
+      if (interval !== undefined) clearInterval(interval);
+      value.client.dispose();
+    };
+  }, [value]);
 
   return (
     <EnfyraContext.Provider value={value}>{children}</EnfyraContext.Provider>
@@ -82,14 +45,17 @@ export function useEnfyra(): EnfyraClient {
   return ctx.client;
 }
 
-export function useAuthStoreApi(): StoreApi<AuthStore> {
+export function useAuthStoreApi() {
   const ctx = useContext(EnfyraContext);
-  if (!ctx) throw new Error('useAuthStoreApi must be used within an EnfyraProvider');
+  if (!ctx)
+    throw new Error('useAuthStoreApi must be used within an EnfyraProvider');
   return ctx.authStore;
 }
 
 function assertBrowserRuntime(): void {
   if (typeof window === 'undefined') {
-    throw new Error('@enfyra/sdk-react is CSR-only. Use @enfyra/next for SSR.');
+    throw new Error(
+      '@enfyra/sdk-react is CSR-only. Use @enfyra/sdk-next for SSR.',
+    );
   }
 }

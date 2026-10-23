@@ -1,51 +1,90 @@
 import { createStore } from 'zustand/vanilla';
-import type { EnfyraClient, RequestStatus, UserInfo } from '@enfyra/sdk-core';
-
-export interface AuthState {
-  user: UserInfo | null;
-  isAuthenticated: boolean;
-  pending: boolean;
-  status: RequestStatus | null;
-  error: Error | null;
-}
-
-export interface AuthActions {
-  refresh: () => Promise<UserInfo | null>;
-  setUser: (user: UserInfo | null) => void;
-  setPending: (pending: boolean, status?: RequestStatus | null) => void;
-  setError: (error: Error | null) => void;
-}
-
-export type AuthStore = AuthState & AuthActions;
+import type { EnfyraClient, UserInfo } from '@enfyra/sdk-core';
+import type { AuthStore } from '../types';
 
 export function createAuthStore(client: EnfyraClient) {
-  return createStore<AuthStore>((set) => ({
+  let generation = 0;
+  let refreshPromise: Promise<UserInfo | null> | null = null;
+  return createStore<AuthStore>((set, get) => ({
     user: null,
     isAuthenticated: false,
     pending: false,
     status: null,
     error: null,
-
-    setUser: (user) => set({ user, isAuthenticated: user !== null }),
-    setPending: (pending, status) => set({ pending, ...(status !== undefined ? { status } : {}) }),
+    setUser: (user) => {
+      generation++;
+      refreshPromise = null;
+      set({ user, isAuthenticated: user !== null, pending: false });
+    },
+    setPending: (pending, status) =>
+      set({ pending, ...(status !== undefined ? { status } : {}) }),
     setError: (error) => set({ error }),
-
-    refresh: async () => {
+    login: async (credentials) => {
+      const current = ++generation;
+      refreshPromise = null;
       set({ pending: true, status: 'pending', error: null });
       try {
-        const user = await client.auth.getMe();
-        set({ user, isAuthenticated: user !== null, pending: false, status: 'success' });
-        return user;
+        const result = await client.auth.login(credentials);
+        if (current !== generation) return null;
+        await get().refresh();
+        return result;
       } catch (err) {
-        const is401 = err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode?: number }).statusCode === 401;
-        if (is401) {
-          set({ user: null, isAuthenticated: false, pending: false, status: 'success' });
-          return null;
-        }
-        const error = err instanceof Error ? err : new Error('Auth check failed');
-        set({ error, pending: false, status: 'error' });
+        if (current === generation)
+          set({
+            error: err instanceof Error ? err : new Error('Login failed'),
+            pending: false,
+            status: 'error',
+          });
         return null;
       }
+    },
+    logout: async () => {
+      get().setUser(null);
+      set({ pending: false, status: null, error: null });
+      await client.auth.logout();
+    },
+    refresh: () => {
+      if (refreshPromise) return refreshPromise;
+      const current = generation;
+      set({ pending: true, status: 'pending', error: null });
+      refreshPromise = (async () => {
+        try {
+          const user = await client.auth.getMe();
+          if (generation !== current) return get().user;
+          set({
+            user,
+            isAuthenticated: user !== null,
+            pending: false,
+            status: 'success',
+          });
+          return user;
+        } catch (err) {
+          if (generation !== current) return get().user;
+          const is401 =
+            err &&
+            typeof err === 'object' &&
+            'statusCode' in err &&
+            err.statusCode === 401;
+          if (is401)
+            set({
+              user: null,
+              isAuthenticated: false,
+              pending: false,
+              status: 'success',
+            });
+          else
+            set({
+              error:
+                err instanceof Error ? err : new Error('Auth check failed'),
+              pending: false,
+              status: 'error',
+            });
+          return null;
+        } finally {
+          if (generation === current) refreshPromise = null;
+        }
+      })();
+      return refreshPromise;
     },
   }));
 }
